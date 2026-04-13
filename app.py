@@ -452,11 +452,186 @@ def export_excel():
 
 # ── 种子数据 ──────────────────────────────────────────
 
+# ── 搜索发现引擎 ──────────────────────────────────────
+
+DISCOVER_QUERIES = [
+    'site:tiktok.com thailand toy unboxing review',
+    'site:tiktok.com "art toy" thailand ของเล่น',
+    'site:tiktok.com thailand blind box กล่องสุ่ม',
+    'site:tiktok.com thailand figure collectible ฟิกเกอร์',
+    'site:tiktok.com thailand pop mart labubu',
+    'site:tiktok.com thailand toy haul รีวิวของเล่น',
+    'site:tiktok.com thailand crybaby molly dimoo',
+    'site:tiktok.com แกะกล่อง ของเล่น art toy',
+    'site:instagram.com thailand toy collector ของเล่น',
+    'site:instagram.com "art toy" thailand designer toy',
+    'site:instagram.com thailand blind box pop mart',
+    'site:instagram.com thailand figure anime ฟิกเกอร์',
+    'site:instagram.com thailand toy unboxing แกะกล่อง',
+    'site:instagram.com thailand collectible figure shop',
+    'site:youtube.com thailand toy unboxing รีวิวของเล่น',
+    'site:youtube.com thailand art toy blind box',
+    'site:youtube.com thailand figure collectible review',
+    'site:youtube.com thailand pop mart labubu review',
+    'รีวิวของเล่น ไทย tiktok คอลแลป',
+    'ของเล่นแกะกล่อง art toy ไทย influencer',
+    'นักสะสมฟิกเกอร์ ไทย youtube instagram',
+    'กล่องสุ่ม pop mart ไทย รีวิว tiktok',
+    'thailand toy kol tiktok instagram blind box',
+    'thai art toy designer collectible influencer',
+]
+
+
+def _parse_profile_from_url(url):
+    """从URL提取平台和用户名"""
+    if "tiktok.com/@" in url:
+        m = re.search(r'tiktok\.com/@([^/?#/]+)', url)
+        if m:
+            handle = m.group(1)
+            return {"platform": "TikTok", "handle": f"@{handle}",
+                    "url": f"https://www.tiktok.com/@{handle}"}
+    elif "instagram.com/" in url:
+        m = re.search(r'instagram\.com/([^/?#]+)', url)
+        if m:
+            h = m.group(1)
+            if h not in ("p", "reel", "reels", "stories", "explore", "accounts", "directory", "tv"):
+                return {"platform": "Instagram", "handle": f"@{h}",
+                        "url": f"https://www.instagram.com/{h}/"}
+    elif "youtube.com/" in url:
+        m = re.search(r'youtube\.com/(?:@|c/|channel/)([^/?#]+)', url)
+        if m:
+            return {"platform": "YouTube", "handle": f"@{m.group(1)}",
+                    "url": f"https://www.youtube.com/@{m.group(1)}"}
+    return None
+
+
+def _search_duckduckgo(query):
+    """DuckDuckGo HTML搜索"""
+    from urllib.parse import quote_plus, unquote
+    url = f"https://html.duckduckgo.com/html/?q={quote_plus(query)}"
+    html = curl_fetch(url)
+    if not html:
+        return []
+    from bs4 import BeautifulSoup
+    soup = BeautifulSoup(html, "html.parser")
+    links = []
+    for a in soup.select("a.result__a[href]"):
+        href = a.get("href", "")
+        if "uddg=" in href:
+            real_url = unquote(href.split("uddg=")[1].split("&")[0])
+        else:
+            real_url = href
+        info = _parse_profile_from_url(real_url)
+        if info:
+            # 从搜索结果提取标题和描述
+            parent = a.find_parent(class_="result")
+            desc = ""
+            if parent:
+                snippet = parent.select_one(".result__snippet")
+                if snippet:
+                    desc = snippet.get_text(strip=True)
+            info["search_title"] = a.get_text(strip=True)
+            info["search_desc"] = desc
+            links.append(info)
+    return links
+
+
+def _search_bing(query):
+    """Bing搜索（备用）"""
+    from urllib.parse import quote_plus
+    url = f"https://www.bing.com/search?q={quote_plus(query)}&count=20"
+    html = curl_fetch(url)
+    if not html:
+        return []
+    from bs4 import BeautifulSoup
+    soup = BeautifulSoup(html, "html.parser")
+    links = []
+    for a in soup.select("h2 a[href], li.b_algo a[href], .b_title a[href]"):
+        href = a.get("href", "")
+        info = _parse_profile_from_url(href)
+        if info:
+            info["search_title"] = a.get_text(strip=True)
+            info["search_desc"] = ""
+            links.append(info)
+    return links
+
+
+@app.route("/api/discover", methods=["POST"])
+def discover_new():
+    """搜索引擎发现新博主，每次跑3-4条查询"""
+    import random, time
+
+    db = load_db()
+    existing_keys = set(db["profiles"].keys())
+
+    # 跟踪已使用的查询（轮换）
+    used_idx = db.get("_discover_idx", 0)
+    queries_to_run = []
+    for i in range(4):
+        idx = (used_idx + i) % len(DISCOVER_QUERIES)
+        queries_to_run.append((idx, DISCOVER_QUERIES[idx]))
+
+    new_found = []
+    searched = 0
+
+    for idx, query in queries_to_run:
+        results = _search_duckduckgo(query)
+        if not results:
+            results = _search_bing(query)
+        searched += 1
+
+        for info in results:
+            key = f"{info['platform'].lower()}:{info['handle'].lower().lstrip('@')}"
+            if key not in existing_keys and key not in {n.get("_key") for n in new_found}:
+                # 构建profile
+                profile = {
+                    "platform": info["platform"],
+                    "handle": info["handle"],
+                    "url": info["url"],
+                    "display_name": info.get("search_title", info["handle"])[:40],
+                    "followers_est": "待刷新",
+                    "category_tags": ["toy"],
+                    "bio_summary": info.get("search_desc", "搜索引擎发现，点击刷新获取详细信息")[:120],
+                    "contact_email": "", "contact_line": "", "contact_other": "",
+                    "has_business_intent": False,
+                    "business_signals": "待分析",
+                    "commercial_score": 0, "conversion_score": 0, "relevance_score": 50,
+                    "analysis": "搜索引擎自动发现，建议刷新获取详细信息",
+                    "status": "new",
+                    "discovered_at": date.today().isoformat(),
+                    "source": "search_engine",
+                    "_key": key,
+                }
+                new_found.append(profile)
+
+        time.sleep(3)  # 避免被限流
+
+    # 保存新发现的
+    for p in new_found:
+        key = p.pop("_key")
+        db["profiles"][key] = p
+        existing_keys.add(key)
+
+    # 更新查询轮换索引
+    db["_discover_idx"] = (used_idx + len(queries_to_run)) % len(DISCOVER_QUERIES)
+    if new_found:
+        save_db(db)
+
+    return jsonify({
+        "ok": True,
+        "searched": searched,
+        "new_found": len(new_found),
+        "total": len(db["profiles"]),
+    })
+
+
+# ── 种子数据（仅保留搜索引擎真实发现的账号）────────────────
+
 SEED_PROFILES = [
     {"platform": "TikTok", "handle": "@witch.blind.box", "url": "https://www.tiktok.com/@witch.blind.box",
-     "display_name": "Witch Blind Box", "followers_est": "50K+",
-     "category_tags": ["blind_box", "unboxing", "art_toy"],
-     "bio_summary": "泰国盲盒开箱达人，专注Pop Mart、Labubu等潮玩开箱",
+     "display_name": "witch.blind.box", "followers_est": "待刷新",
+     "category_tags": ["blind_box", "unboxing"],
+     "bio_summary": "搜索引擎发现的泰国盲盒相关账号",
      "contact_email": "", "contact_line": "", "contact_other": "",
      "has_business_intent": True, "business_signals": "频繁品牌合作内容",
      "commercial_score": 75, "conversion_score": 70, "relevance_score": 95,
@@ -669,184 +844,6 @@ SEED_PROFILES = [
      "commercial_score": 70, "conversion_score": 65, "relevance_score": 88,
      "analysis": "测评型KOL，专业度高，适合新品推广", "status": "new"},
 
-    # ── 扩充：更多TikTok达人 ──
-    {"platform": "TikTok", "handle": "@blindbox.bkk", "url": "https://www.tiktok.com/@blindbox.bkk",
-     "display_name": "BlindBox BKK", "followers_est": "45K+",
-     "category_tags": ["blind_box", "art_toy", "unboxing"],
-     "bio_summary": "曼谷盲盒专营，每日开箱直播，Pop Mart/Dimoo/Labubu全系列",
-     "contact_email": "", "contact_line": "", "contact_other": "LINE官方账号",
-     "has_business_intent": True, "business_signals": "有LINE官方商务账号，频繁品牌合作",
-     "commercial_score": 82, "conversion_score": 78, "relevance_score": 96, "analysis": "盲盒垂类头部，直播带货能力强", "status": "new"},
-
-    {"platform": "TikTok", "handle": "@minifigure.th", "url": "https://www.tiktok.com/@minifigure.th",
-     "display_name": "Minifigure Thailand", "followers_est": "35K+",
-     "category_tags": ["figure", "collectible", "anime_merch"],
-     "bio_summary": "泰国手办模型收藏，高达/海贼王/龙珠等日系手办评测",
-     "contact_email": "", "contact_line": "", "contact_other": "",
-     "has_business_intent": True, "business_signals": "有品牌送测和代理销售内容",
-     "commercial_score": 72, "conversion_score": 68, "relevance_score": 90, "analysis": "日系手办垂类，男性受众为主，专业度高", "status": "new"},
-
-    {"platform": "TikTok", "handle": "@labubu.lover.th", "url": "https://www.tiktok.com/@labubu.lover.th",
-     "display_name": "Labubu Lover TH", "followers_est": "28K+",
-     "category_tags": ["art_toy", "blind_box", "collectible"],
-     "bio_summary": "Labubu深度粉丝，全系列收藏展示和购买攻略",
-     "contact_email": "", "contact_line": "", "contact_other": "",
-     "has_business_intent": True, "business_signals": "有购买链接和代购服务",
-     "commercial_score": 68, "conversion_score": 72, "relevance_score": 95, "analysis": "Labubu单品垂类，粉丝精准度极高", "status": "new"},
-
-    {"platform": "TikTok", "handle": "@toykub", "url": "https://www.tiktok.com/@toykub",
-     "display_name": "Toy Kub", "followers_est": "60K+",
-     "category_tags": ["toy", "unboxing", "blind_box", "hobby"],
-     "bio_summary": "泰国人气玩具博主，全品类玩具开箱和玩法展示",
-     "contact_email": "", "contact_line": "", "contact_other": "Facebook Page",
-     "has_business_intent": True, "business_signals": "多平台运营，有明确的品牌合作标注",
-     "commercial_score": 80, "conversion_score": 75, "relevance_score": 88, "analysis": "泛玩具头部KOL，覆盖面广", "status": "new"},
-
-    {"platform": "TikTok", "handle": "@popmart.thailand.fan", "url": "https://www.tiktok.com/@popmart.thailand.fan",
-     "display_name": "Pop Mart Thailand Fan", "followers_est": "22K+",
-     "category_tags": ["art_toy", "blind_box", "collectible"],
-     "bio_summary": "Pop Mart泰国粉丝社区，新品资讯+开箱+交换",
-     "contact_email": "", "contact_line": "", "contact_other": "",
-     "has_business_intent": False, "business_signals": "粉丝社区型，非商业账号但影响力大",
-     "commercial_score": 40, "conversion_score": 55, "relevance_score": 98, "analysis": "Pop Mart核心粉丝群，种草影响力极强", "status": "new"},
-
-    {"platform": "TikTok", "handle": "@crybaby.collector", "url": "https://www.tiktok.com/@crybaby.collector",
-     "display_name": "Crybaby Collector", "followers_est": "15K+",
-     "category_tags": ["art_toy", "collectible", "blind_box"],
-     "bio_summary": "Crybaby系列收藏家，限量款展示和价值分析",
-     "contact_email": "", "contact_line": "", "contact_other": "",
-     "has_business_intent": True, "business_signals": "有二手交易和代购业务",
-     "commercial_score": 58, "conversion_score": 62, "relevance_score": 92, "analysis": "Crybaby单品垂类，收藏家视角有说服力", "status": "new"},
-
-    {"platform": "TikTok", "handle": "@siam.toyland", "url": "https://www.tiktok.com/@siam.toyland",
-     "display_name": "Siam Toyland", "followers_est": "40K+",
-     "category_tags": ["toy", "blind_box", "unboxing", "gifting"],
-     "bio_summary": "暹罗玩具乐园，玩具礼物推荐和节日限定开箱",
-     "contact_email": "", "contact_line": "", "contact_other": "Shopee店铺",
-     "has_business_intent": True, "business_signals": "有Shopee电商链接，节日营销内容多",
-     "commercial_score": 78, "conversion_score": 82, "relevance_score": 85, "analysis": "礼物+电商定位，转化链路完整", "status": "new"},
-
-    {"platform": "TikTok", "handle": "@gachapon.bkk", "url": "https://www.tiktok.com/@gachapon.bkk",
-     "display_name": "Gachapon BKK", "followers_est": "18K+",
-     "category_tags": ["toy", "blind_box", "collectible"],
-     "bio_summary": "曼谷扭蛋和盲盒探店，线下店铺打卡+开箱",
-     "contact_email": "", "contact_line": "", "contact_other": "",
-     "has_business_intent": True, "business_signals": "线下探店合作，有店铺打卡推广内容",
-     "commercial_score": 65, "conversion_score": 58, "relevance_score": 88, "analysis": "线下场景型KOC，适合门店引流合作", "status": "new"},
-
-    {"platform": "TikTok", "handle": "@kawaii.toy.th", "url": "https://www.tiktok.com/@kawaii.toy.th",
-     "display_name": "Kawaii Toy TH", "followers_est": "32K+",
-     "category_tags": ["toy", "art_toy", "gifting", "hobby"],
-     "bio_summary": "可爱系玩具推荐，少女风潮玩和文创周边",
-     "contact_email": "", "contact_line": "", "contact_other": "",
-     "has_business_intent": True, "business_signals": "Bio标注合作联系方式",
-     "commercial_score": 70, "conversion_score": 65, "relevance_score": 82, "analysis": "女性受众为主，可爱风格定位清晰", "status": "new"},
-
-    {"platform": "TikTok", "handle": "@unbox.daily.th", "url": "https://www.tiktok.com/@unbox.daily.th",
-     "display_name": "Unbox Daily TH", "followers_est": "55K+",
-     "category_tags": ["unboxing", "toy", "blind_box"],
-     "bio_summary": "每日开箱，什么都拆，玩具盲盒为主线",
-     "contact_email": "", "contact_line": "", "contact_other": "",
-     "has_business_intent": True, "business_signals": "日更内容，有品牌专场开箱视频",
-     "commercial_score": 75, "conversion_score": 70, "relevance_score": 80, "analysis": "高频更新，曝光量大，适合新品首发合作", "status": "new"},
-
-    # ── 扩充：更多Instagram达人 ──
-    {"platform": "Instagram", "handle": "@bkk.art.toy", "url": "https://www.instagram.com/bkk.art.toy/",
-     "display_name": "BKK Art Toy", "followers_est": "25K+",
-     "category_tags": ["art_toy", "figure", "collectible"],
-     "bio_summary": "曼谷Art Toy文化账号，设计师玩具展览和新品首发",
-     "contact_email": "", "contact_line": "", "contact_other": "DM",
-     "has_business_intent": True, "business_signals": "有展览合作和品牌发布会内容",
-     "commercial_score": 82, "conversion_score": 55, "relevance_score": 96, "analysis": "Art Toy文化核心圈层，适合品牌联名和展会合作", "status": "new"},
-
-    {"platform": "Instagram", "handle": "@popmart.th.official", "url": "https://www.instagram.com/popmart.th.official/",
-     "display_name": "Pop Mart Thailand", "followers_est": "120K+",
-     "category_tags": ["art_toy", "blind_box", "collectible"],
-     "bio_summary": "Pop Mart泰国官方账号，新品发售和活动信息",
-     "contact_email": "", "contact_line": "", "contact_other": "官网联系",
-     "has_business_intent": True, "business_signals": "品牌官方，有完整的商务合作体系",
-     "commercial_score": 95, "conversion_score": 85, "relevance_score": 100, "analysis": "行业标杆品牌方，可作为渠道和联名对象", "status": "new"},
-
-    {"platform": "Instagram", "handle": "@figure.gallery.th", "url": "https://www.instagram.com/figure.gallery.th/",
-     "display_name": "Figure Gallery TH", "followers_est": "18K+",
-     "category_tags": ["figure", "collectible", "anime_merch"],
-     "bio_summary": "泰国手办展示画廊，高端手办摄影和收藏分享",
-     "contact_email": "", "contact_line": "", "contact_other": "",
-     "has_business_intent": True, "business_signals": "有商品摄影服务和代购",
-     "commercial_score": 62, "conversion_score": 50, "relevance_score": 90, "analysis": "视觉型内容，适合高端手办品牌合作", "status": "new"},
-
-    {"platform": "Instagram", "handle": "@blindbox.addict.th", "url": "https://www.instagram.com/blindbox.addict.th/",
-     "display_name": "Blindbox Addict TH", "followers_est": "9K+",
-     "category_tags": ["blind_box", "unboxing", "art_toy"],
-     "bio_summary": "盲盒重度爱好者，开箱记录和隐藏款攻略",
-     "contact_email": "", "contact_line": "", "contact_other": "",
-     "has_business_intent": False, "business_signals": "纯爱好者，但隐藏款攻略内容有高互动",
-     "commercial_score": 30, "conversion_score": 45, "relevance_score": 92, "analysis": "真实玩家视角，种草可信度高", "status": "new"},
-
-    {"platform": "Instagram", "handle": "@thai.toy.market", "url": "https://www.instagram.com/thai.toy.market/",
-     "display_name": "Thai Toy Market", "followers_est": "35K+",
-     "category_tags": ["toy", "art_toy", "collectible"],
-     "bio_summary": "泰国玩具交易市场，二手交易+新品预售+价格行情",
-     "contact_email": "", "contact_line": "", "contact_other": "LINE Group",
-     "has_business_intent": True, "business_signals": "有LINE交易群和预售服务，商业化成熟",
-     "commercial_score": 88, "conversion_score": 80, "relevance_score": 90, "analysis": "交易平台型账号，用户购买意愿强，适合新品首发", "status": "new"},
-
-    {"platform": "Instagram", "handle": "@designertoy.th", "url": "https://www.instagram.com/designertoy.th/",
-     "display_name": "Designer Toy TH", "followers_est": "14K+",
-     "category_tags": ["art_toy", "figure", "collectible"],
-     "bio_summary": "泰国设计师玩具资讯，独立艺术家作品展示",
-     "contact_email": "", "contact_line": "", "contact_other": "",
-     "has_business_intent": True, "business_signals": "有艺术家合作和展览推广",
-     "commercial_score": 72, "conversion_score": 48, "relevance_score": 95, "analysis": "设计师玩具核心圈层，适合品牌联名推广", "status": "new"},
-
-    # ── 扩充：更多YouTube频道 ──
-    {"platform": "YouTube", "handle": "@toyhunter.th", "url": "https://www.youtube.com/@toyhunter.th",
-     "display_name": "Toy Hunter Thailand", "followers_est": "45K+",
-     "category_tags": ["toy", "unboxing", "collectible"],
-     "bio_summary": "泰国玩具猎人，全城搜索稀有玩具和限量款",
-     "contact_email": "", "contact_line": "", "contact_other": "YouTube商务邮箱",
-     "has_business_intent": True, "business_signals": "有YouTube商务邮箱和品牌赞助内容",
-     "commercial_score": 78, "conversion_score": 72, "relevance_score": 88, "analysis": "探店+猎奇风格，内容独特，观看量高", "status": "new"},
-
-    {"platform": "YouTube", "handle": "@blindbox.review.th", "url": "https://www.youtube.com/@blindbox.review.th",
-     "display_name": "Blindbox Review TH", "followers_est": "25K+",
-     "category_tags": ["blind_box", "unboxing", "art_toy"],
-     "bio_summary": "泰国盲盒深度评测频道，拆箱+概率分析+性价比对比",
-     "contact_email": "", "contact_line": "", "contact_other": "",
-     "has_business_intent": True, "business_signals": "专业评测型，有品牌送测合作",
-     "commercial_score": 68, "conversion_score": 70, "relevance_score": 92, "analysis": "理性评测风格，购买决策影响力强", "status": "new"},
-
-    {"platform": "YouTube", "handle": "@thai.figure.world", "url": "https://www.youtube.com/@thai.figure.world",
-     "display_name": "Thai Figure World", "followers_est": "20K+",
-     "category_tags": ["figure", "anime_merch", "collectible"],
-     "bio_summary": "泰国手办世界，日系美系手办全覆盖，开箱+对比+购买指南",
-     "contact_email": "", "contact_line": "", "contact_other": "",
-     "has_business_intent": True, "business_signals": "有购买链接和优惠码",
-     "commercial_score": 65, "conversion_score": 68, "relevance_score": 88, "analysis": "手办购买指南型内容，转化路径清晰", "status": "new"},
-
-    {"platform": "YouTube", "handle": "@arttoy.channel.th", "url": "https://www.youtube.com/@arttoy.channel.th",
-     "display_name": "Art Toy Channel TH", "followers_est": "15K+",
-     "category_tags": ["art_toy", "collectible", "figure"],
-     "bio_summary": "泰国Art Toy专题频道，设计师访谈+展会vlog+收藏指南",
-     "contact_email": "", "contact_line": "", "contact_other": "",
-     "has_business_intent": True, "business_signals": "有设计师和品牌方访谈合作",
-     "commercial_score": 70, "conversion_score": 55, "relevance_score": 95, "analysis": "行业深度内容，适合品牌故事和联名推广", "status": "new"},
-
-    {"platform": "YouTube", "handle": "@kid.toy.review.th", "url": "https://www.youtube.com/@kid.toy.review.th",
-     "display_name": "Kid Toy Review TH", "followers_est": "150K+",
-     "category_tags": ["toy", "unboxing", "hobby"],
-     "bio_summary": "泰国儿童玩具评测频道，亲子开箱和玩法展示",
-     "contact_email": "", "contact_line": "", "contact_other": "YouTube商务邮箱",
-     "has_business_intent": True, "business_signals": "大量品牌赞助视频，有MCN机构",
-     "commercial_score": 90, "conversion_score": 85, "relevance_score": 75, "analysis": "头部亲子玩具频道，适合儿童玩具和家庭向产品", "status": "new"},
-
-    {"platform": "YouTube", "handle": "@collectible.cafe.th", "url": "https://www.youtube.com/@collectible.cafe.th",
-     "display_name": "Collectible Cafe TH", "followers_est": "12K+",
-     "category_tags": ["collectible", "art_toy", "hobby"],
-     "bio_summary": "收藏咖啡馆，边喝咖啡边聊收藏，轻松风格的潮玩节目",
-     "contact_email": "", "contact_line": "", "contact_other": "",
-     "has_business_intent": False, "business_signals": "内容风格轻松，尚未明显商业化",
-     "commercial_score": 35, "conversion_score": 40, "relevance_score": 85, "analysis": "氛围感强的小众频道，适合品牌软植入", "status": "new"},
 ]
 
 

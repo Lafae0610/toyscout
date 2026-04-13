@@ -124,6 +124,7 @@
         </select>
         <button type="submit" class="btn btn-primary">筛选</button>
         <div class="spacer"></div>
+        <button class="btn btn-green" id="discover-btn" onclick="discoverNew()">发现新博主</button>
         <button class="btn btn-green" id="refresh-btn" onclick="refreshAll()">刷新全部</button>
         <a href="/api/export" class="btn btn-outline">导出Excel</a>
     </form>
@@ -237,6 +238,25 @@
         document.getElementById('add-url').addEventListener('keydown', function(e) {
             if (e.key === 'Enter') { e.preventDefault(); addByUrl(); }
         });
+
+        function discoverNew() {
+            const btn = document.getElementById('discover-btn');
+            btn.disabled = true;
+            btn.textContent = '搜索中...';
+
+            fetch('/api/discover', { method: 'POST' })
+            .then(r => r.json())
+            .then(d => {
+                if (d.ok) {
+                    showToast('发现 ' + d.new_count + ' 个新博主（共搜索 ' + d.searched + ' 条结果）');
+                    if (d.new_count > 0) setTimeout(() => location.reload(), 1000);
+                } else {
+                    showToast(d.error || '搜索失败');
+                }
+            })
+            .catch(() => showToast('网络错误'))
+            .finally(() => { btn.disabled = false; btn.textContent = '发现新博主'; });
+        }
 
         function refreshAll() {
             const btn = document.getElementById('refresh-btn');
