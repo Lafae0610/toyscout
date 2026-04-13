@@ -676,6 +676,6 @@ init_db()
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5050))
     debug = os.environ.get("FLASK_ENV") != "production"
-    print(f"\n  🚀 泰国潮玩KOL/KOC发现工具已启动")
+    print(f"\n  🚀 ToyScout 已启动")
     print(f"  📍 打开浏览器访问: http://localhost:{port}\n")
     app.run(debug=debug, host="0.0.0.0", port=port)
