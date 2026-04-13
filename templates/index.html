@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>泰国潮玩 KOL/KOC 发现</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #f5f5f5; color: #333; }
+
+        .header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: #fff; padding: 24px 32px; }
+        .header h1 { font-size: 22px; font-weight: 600; }
+        .header p { font-size: 13px; opacity: 0.85; margin-top: 4px; }
+
+        .stats-bar { display: flex; gap: 16px; padding: 16px 32px; background: #fff; border-bottom: 1px solid #e8e8e8; flex-wrap: wrap; }
+        .stat-card { padding: 12px 20px; background: #f8f9ff; border-radius: 8px; text-align: center; min-width: 100px; cursor: pointer; transition: all 0.2s; text-decoration: none; color: inherit; display: block; }
+        .stat-card:hover { background: #e8ebff; box-shadow: 0 2px 8px rgba(102,126,234,0.15); transform: translateY(-1px); }
+        .stat-card .num { font-size: 24px; font-weight: 700; color: #667eea; }
+        .stat-card .label { font-size: 11px; color: #888; margin-top: 2px; }
+
+        .toolbar { display: flex; gap: 12px; padding: 16px 32px; align-items: center; flex-wrap: wrap; }
+        .toolbar input[type="text"] { padding: 8px 14px; border: 1px solid #ddd; border-radius: 6px; font-size: 14px; width: 240px; }
+        .toolbar select { padding: 8px 12px; border: 1px solid #ddd; border-radius: 6px; font-size: 14px; background: #fff; }
+        .toolbar .spacer { flex: 1; }
+        .btn { padding: 8px 16px; border: none; border-radius: 6px; font-size: 13px; cursor: pointer; text-decoration: none; display: inline-flex; align-items: center; gap: 4px; }
+        .btn-primary { background: #667eea; color: #fff; }
+        .btn-primary:hover { background: #5a6fd6; }
+        .btn-outline { background: #fff; color: #667eea; border: 1px solid #667eea; }
+        .btn-outline:hover { background: #f0f2ff; }
+        .btn-green { background: #52c41a; color: #fff; }
+        .btn-green:hover { background: #49b019; }
+        .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+        .add-bar { display: flex; gap: 8px; padding: 0 32px 16px; align-items: center; }
+        .add-bar input { flex: 1; max-width: 500px; padding: 10px 14px; border: 1px solid #ddd; border-radius: 6px; font-size: 14px; }
+        .add-bar input:focus { border-color: #667eea; outline: none; }
+
+        .toast { position: fixed; bottom: 24px; right: 24px; background: #333; color: #fff; padding: 12px 20px; border-radius: 8px; font-size: 13px; opacity: 0; transition: opacity 0.3s; z-index: 999; pointer-events: none; }
+        .toast.show { opacity: 1; }
+
+        .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 16px; padding: 0 32px 32px; }
+
+        .card { background: #fff; border-radius: 12px; padding: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); transition: box-shadow 0.2s; cursor: pointer; text-decoration: none; color: inherit; display: block; position: relative; }
+        .card:hover { box-shadow: 0 4px 12px rgba(0,0,0,0.12); }
+
+        .card-header { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+        .avatar { width: 48px; height: 48px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 20px; font-weight: 700; color: #fff; flex-shrink: 0; }
+        .avatar.tiktok { background: #111; }
+        .avatar.instagram { background: linear-gradient(45deg, #f09433, #e6683c, #dc2743, #cc2366, #bc1888); }
+        .avatar.youtube { background: #ff0000; }
+        .card-name { font-size: 15px; font-weight: 600; }
+        .card-handle { font-size: 12px; color: #888; }
+        .card-followers { font-size: 11px; color: #667eea; font-weight: 500; }
+
+        .card-bio { font-size: 13px; color: #666; line-height: 1.5; margin-bottom: 12px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+
+        .tags { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 12px; }
+        .tag { padding: 2px 8px; background: #f0f2ff; color: #667eea; border-radius: 4px; font-size: 11px; }
+
+        .scores { display: flex; gap: 8px; }
+        .score { text-align: center; flex: 1; }
+        .score-bar { height: 4px; background: #eee; border-radius: 2px; overflow: hidden; margin-bottom: 4px; }
+        .score-fill { height: 100%; border-radius: 2px; }
+        .score-fill.high { background: #52c41a; }
+        .score-fill.mid { background: #faad14; }
+        .score-fill.low { background: #ccc; }
+        .score-label { font-size: 10px; color: #999; }
+        .score-num { font-size: 12px; font-weight: 600; }
+
+        .status-badge { position: absolute; top: 12px; right: 12px; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 500; }
+        .status-new { background: #e6f7ff; color: #1890ff; }
+        .status-interested { background: #f6ffed; color: #52c41a; }
+        .status-contacted { background: #fff7e6; color: #fa8c16; }
+        .status-rejected { background: #fff1f0; color: #f5222d; }
+        .status-collaborated { background: #f9f0ff; color: #722ed1; }
+
+        .biz-signal { display: flex; align-items: center; gap: 4px; font-size: 11px; color: #52c41a; margin-top: 8px; }
+        .biz-signal.no { color: #ccc; }
+
+        .empty { text-align: center; padding: 60px; color: #999; }
+
+        @media (max-width: 768px) {
+            .header, .toolbar, .grid, .stats-bar { padding-left: 16px; padding-right: 16px; }
+            .grid { grid-template-columns: 1fr; }
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>泰国潮玩 KOL/KOC 发现工具</h1>
+        <p>玩具 / 潮玩 / 盲盒 / 手办 / 动漫周边 - 商务合作寻访</p>
+    </div>
+
+    <div class="stats-bar">
+        <a class="stat-card" href="/"><div class="num">{{ stats.total }}</div><div class="label">总计</div></a>
+        <a class="stat-card" href="/?platform=TikTok"><div class="num">{{ stats.tiktok }}</div><div class="label">TikTok</div></a>
+        <a class="stat-card" href="/?platform=Instagram"><div class="num">{{ stats.instagram }}</div><div class="label">Instagram</div></a>
+        <a class="stat-card" href="/?platform=YouTube"><div class="num">{{ stats.youtube }}</div><div class="label">YouTube</div></a>
+        <a class="stat-card" href="/?filter=contactable"><div class="num">{{ stats.contactable }}</div><div class="label">可联系</div></a>
+        <a class="stat-card" href="/?status=contacted"><div class="num">{{ stats.contacted }}</div><div class="label">已联系</div></a>
+    </div>
+
+    <form class="toolbar" method="GET" action="/">
+        <input type="text" name="search" placeholder="搜索用户名、标签..." value="{{ search }}">
+        <select name="platform" onchange="this.form.submit()">
+            <option value="">全部平台</option>
+            <option value="TikTok" {{ 'selected' if platform == 'TikTok' }}>TikTok</option>
+            <option value="Instagram" {{ 'selected' if platform == 'Instagram' }}>Instagram</option>
+            <option value="YouTube" {{ 'selected' if platform == 'YouTube' }}>YouTube</option>
+        </select>
+        <select name="status" onchange="this.form.submit()">
+            <option value="">全部状态</option>
+            <option value="new" {{ 'selected' if status == 'new' }}>新发现</option>
+            <option value="interested" {{ 'selected' if status == 'interested' }}>感兴趣</option>
+            <option value="contacted" {{ 'selected' if status == 'contacted' }}>已联系</option>
+            <option value="collaborated" {{ 'selected' if status == 'collaborated' }}>已合作</option>
+            <option value="rejected" {{ 'selected' if status == 'rejected' }}>不合适</option>
+        </select>
+        <select name="sort" onchange="this.form.submit()">
+            <option value="total" {{ 'selected' if sort_by == 'total' }}>综合排序</option>
+            <option value="relevance" {{ 'selected' if sort_by == 'relevance' }}>相关度</option>
+            <option value="commercial" {{ 'selected' if sort_by == 'commercial' }}>合作意愿</option>
+            <option value="conversion" {{ 'selected' if sort_by == 'conversion' }}>转化潜力</option>
+        </select>
+        <button type="submit" class="btn btn-primary">筛选</button>
+        <div class="spacer"></div>
+        <button class="btn btn-green" id="refresh-btn" onclick="refreshAll()">刷新全部</button>
+        <a href="/api/export" class="btn btn-outline">导出Excel</a>
+    </form>
+
+    <div class="add-bar">
+        <input type="text" id="add-url" placeholder="粘贴 TikTok / Instagram / YouTube 主页链接，快速添加博主...">
+        <button class="btn btn-primary" id="add-btn" onclick="addByUrl()">添加</button>
+    </div>
+
+    <div class="grid">
+        {% for p in profiles %}
+        <a class="card" href="/profile/{{ p.platform | lower }}:{{ p.handle | lower | replace('@','') }}">
+            {% set st = p.status or 'new' %}
+            <span class="status-badge status-{{ st }}">
+                {% if st == 'new' %}新发现{% elif st == 'interested' %}感兴趣{% elif st == 'contacted' %}已联系{% elif st == 'collaborated' %}已合作{% elif st == 'rejected' %}不合适{% else %}{{ st }}{% endif %}
+            </span>
+
+            <div class="card-header">
+                <div class="avatar {{ p.platform | lower }}">
+                    {% if p.platform == 'TikTok' %}T{% elif p.platform == 'Instagram' %}I{% else %}Y{% endif %}
+                </div>
+                <div>
+                    <div class="card-name">{{ p.display_name or p.handle }}</div>
+                    <div class="card-handle">{{ p.handle }} · {{ p.platform }}</div>
+                    <div class="card-followers">{{ p.followers_est }}</div>
+                </div>
+            </div>
+
+            <div class="card-bio">{{ p.bio_summary }}</div>
+
+            <div class="tags">
+                {% for tag in p.category_tags or [] %}
+                <span class="tag">{{ tag }}</span>
+                {% endfor %}
+            </div>
+
+            <div class="scores">
+                <div class="score">
+                    <div class="score-bar"><div class="score-fill {{ 'high' if (p.relevance_score or 0) >= 80 else ('mid' if (p.relevance_score or 0) >= 50 else 'low') }}" style="width:{{ p.relevance_score or 0 }}%"></div></div>
+                    <div class="score-num">{{ p.relevance_score or 0 }}</div>
+                    <div class="score-label">相关度</div>
+                </div>
+                <div class="score">
+                    <div class="score-bar"><div class="score-fill {{ 'high' if (p.commercial_score or 0) >= 70 else ('mid' if (p.commercial_score or 0) >= 40 else 'low') }}" style="width:{{ p.commercial_score or 0 }}%"></div></div>
+                    <div class="score-num">{{ p.commercial_score or 0 }}</div>
+                    <div class="score-label">合作意愿</div>
+                </div>
+                <div class="score">
+                    <div class="score-bar"><div class="score-fill {{ 'high' if (p.conversion_score or 0) >= 70 else ('mid' if (p.conversion_score or 0) >= 40 else 'low') }}" style="width:{{ p.conversion_score or 0 }}%"></div></div>
+                    <div class="score-num">{{ p.conversion_score or 0 }}</div>
+                    <div class="score-label">转化潜力</div>
+                </div>
+            </div>
+
+            <div class="biz-signal {{ '' if p.has_business_intent else 'no' }}">
+                {% if p.has_business_intent %}
+                &#9679; {{ p.business_signals or '有商务合作信号' }}
+                {% else %}
+                &#9675; 暂无明显商务信号
+                {% endif %}
+            </div>
+        </a>
+        {% endfor %}
+    </div>
+
+    {% if not profiles %}
+    <div class="empty">
+        <p>没有找到匹配的KOL/KOC</p>
+    </div>
+    {% endif %}
+
+    <div class="toast" id="toast"></div>
+
+    <script>
+        function showToast(msg) {
+            const t = document.getElementById('toast');
+            t.textContent = msg;
+            t.classList.add('show');
+            setTimeout(() => t.classList.remove('show'), 3000);
+        }
+
+        function addByUrl() {
+            const input = document.getElementById('add-url');
+            const btn = document.getElementById('add-btn');
+            const url = input.value.trim();
+            if (!url) { showToast('请粘贴链接'); return; }
+
+            btn.disabled = true;
+            btn.textContent = '添加中...';
+
+            fetch('/api/add', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({url: url})
+            })
+            .then(r => r.json())
+            .then(d => {
+                if (d.ok) {
+                    showToast('已添加 ' + d.handle + ' (' + d.platform + ')');
+                    input.value = '';
+                    setTimeout(() => location.reload(), 800);
+                } else {
+                    showToast(d.error || '添加失败');
+                }
+            })
+            .catch(() => showToast('网络错误'))
+            .finally(() => { btn.disabled = false; btn.textContent = '添加'; });
+        }
+
+        // 回车也能添加
+        document.getElementById('add-url').addEventListener('keydown', function(e) {
+            if (e.key === 'Enter') { e.preventDefault(); addByUrl(); }
+        });
+
+        function refreshAll() {
+            const btn = document.getElementById('refresh-btn');
+            btn.disabled = true;
+            btn.textContent = '刷新中...';
+
+            fetch('/api/refresh', { method: 'POST' })
+            .then(r => r.json())
+            .then(d => {
+                if (d.ok) {
+                    showToast('已刷新 ' + d.updated + '/' + d.total + ' 个博主');
+                    setTimeout(() => location.reload(), 1000);
+                } else {
+                    showToast('刷新失败');
+                }
+            })
+            .catch(() => showToast('网络错误'))
+            .finally(() => { btn.disabled = false; btn.textContent = '刷新全部'; });
+        }
+    </script>
+</body>
+</html>
