@@ -11,6 +11,7 @@ COPY . .
 
 RUN mkdir -p data output
 
-EXPOSE 5050
+ENV PORT=5050
+EXPOSE ${PORT}
 
-CMD ["gunicorn", "app:app", "--bind", "0.0.0.0:5050", "--workers", "2", "--timeout", "120"]
+CMD gunicorn app:app --bind 0.0.0.0:${PORT} --workers 2 --timeout 120
